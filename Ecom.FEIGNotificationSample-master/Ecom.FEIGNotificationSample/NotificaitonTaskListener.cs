@@ -1,4 +1,6 @@
-﻿using OBID;
+﻿using Microsoft.Azure.EventHubs;
+using Newtonsoft.Json;
+using OBID;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -23,14 +25,40 @@ namespace Ecom.FEIGNotificationSample
         }
         #endregion
 
+        public class ShelfEvent
+        {
+            public string UID { get; set; }
+            public string EventTime { get; set; }
+            public string Antenna { get; set; }
+            public string RSSI { get; set; }
+
+        }
+
+
+
+
+
+
         //Executes when a new notificaiton is recieved from the reader.
         public void OnNewNotification(int iError, string ip, uint portNr)
         {
-            //Get Array of BRM Items from BRM Table in reader object
-            //  FedmBrmTableItem[] tagReads = (_reader.GetTable(FedmIscReaderConst.BRM_TABLE) as FedmBrmTableItem[]);
 
-            FedmBrmTableItem[] tagReads;
-            tagReads = (FedmBrmTableItem[])_reader.GetTable(FedmIscReaderConst.BRM_TABLE);
+
+            string EhConnectionString = "Endpoint=sb://smartshelfevents.servicebus.windows.net/;SharedAccessKeyName=staffshop;SharedAccessKey=+BtMcawis6KzoR9BoJX4t/5j/vxPGxvJi2q6gYPLZfo=;EntityPath=staffshopshelves";
+            string EhEntityPath = "staffshopshelves";
+
+
+            var connectionStringBuilder = new EventHubsConnectionStringBuilder(EhConnectionString)
+            {
+                EntityPath = EhEntityPath
+            };
+
+            EventHubClient eventHubClient = EventHubClient.CreateFromConnectionString(connectionStringBuilder.ToString());
+            //Get Array of BRM Items from BRM Table in reader object
+            FedmBrmTableItem[] tagReads = (_reader.GetTable(FedmIscReaderConst.BRM_TABLE) as FedmBrmTableItem[]);
+
+            //setup tagevent class
+            var tagEvent = new ShelfEvent();
 
             if (tagReads != null && tagReads.Length > 0)
             {
@@ -41,6 +69,8 @@ namespace Ecom.FEIGNotificationSample
                 foreach (FedmBrmTableItem item in tagReads)
                 {
                     Console.WriteLine($"Tag ID: {item.GetUid()}");
+                    tagEvent.UID = item.GetUid();
+
                     //Check if Time Information is present
                     if (item.isTimer)
                     {
@@ -50,6 +80,9 @@ namespace Ecom.FEIGNotificationSample
                         int second = (timer.MilliSecond - ms) / 1000;
 
                         Console.WriteLine($"Time: {timer.Year}-{timer.Month}-{timer.Day}T{timer.Hour}:{timer.Minute}:{second}:{ms}");
+
+                        tagEvent.EventTime = timer.Hour + ":" + timer.Minute + ":" + second + ":" + ms;
+
                     }
 
                     Console.Write($"Antenna Values: ");
@@ -60,6 +93,9 @@ namespace Ecom.FEIGNotificationSample
                         foreach (var rssi in item.GetRSSI())
                         {
                             Console.Write($"{rssi.Value.antennaNumber} ");
+
+                            tagEvent.Antenna = rssi.Value.antennaNumber.ToString();
+                            tagEvent.RSSI = rssi.Value.RSSI.ToString();
                         }
 
                         Console.WriteLine();
@@ -68,6 +104,10 @@ namespace Ecom.FEIGNotificationSample
                     Console.WriteLine($"End of Notification");
                     Console.WriteLine($"-------------------");
                     Console.WriteLine();
+
+                    var line = JsonConvert.SerializeObject(tagEvent);
+
+                    eventHubClient.SendAsync(new EventData(Encoding.UTF8.GetBytes(JsonConvert.SerializeObject(tagEvent))));
 
                 }
             }
